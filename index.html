@@ -1800,7 +1800,7 @@ const Drawer = {
       </div>
       <div class="dr-foot">
         <button class="btn primary" data-action="genImg" ${filas.length?'':'disabled'}>${I.img} GENERAR IMAGEN</button>
-        <button class="btn soft-dis" data-action="pago" aria-disabled="true" title="Función disponible en una próxima versión">${I.pay} REGISTRAR PAGO</button>
+        <button class="btn" data-action="pago" ${c.pedidos.some(v=>v.pendiente)?'':'disabled'}>${I.pay} REGISTRAR PAGO</button>
       </div>`;
     document.querySelector('[data-change="drPeriodo"]').value=State.drawer.periodo;
     const ch=document.getElementById('drChart');
@@ -2367,7 +2367,7 @@ const Envios = {
   guardar(){ try{ localStorage.setItem(this.KEY,JSON.stringify(this.st)); }catch(e){} Sync.cambio(); },
   pte(sig){ const v=State.sig&&State.sig.get(sig); return !!(v&&v.pendiente); },
   /* Abono vigente = alguno de sus pedidos sigue en PTE en la hoja */
-  vigente(a){ return a.sigs.some(s=>this.pte(s)); },
+  vigente(a){ if(a.consumido) return false; if(a.favor) return true; return a.sigs.some(s=>this.pte(s)); },
   recalc(){
     if(!this.st) this.cargar();
     const m=new Map(); for(const a of this.st.abonos){ if(this.vigente(a)) m.set(a.key,(m.get(a.key)||0)+a.valor); }
@@ -2618,7 +2618,9 @@ const UI = {
     copiaCompleta: () => Sync.copia(),
     elegirArchivo: () => document.getElementById('fileIn').click(),
     olvidarBase: () => Datos.olvidar(),
-    pago: () => toast('Función disponible en una próxima versión.'),
+    pago: () => Pagar.abrir(),
+    pgForma: d => Pagar.forma(d.f),
+    pgGuardar: () => Pagar.guardar(),
     copiarMsg: async () => { try{ await navigator.clipboard.writeText(Calc.mensajeCobro(State.M.clientes.get(State.drawer.key))); toast('Mensaje copiado.'); }catch(e){ toast('No se pudo copiar el mensaje.'); } },
     abrirWa: () => { const c=State.M.clientes.get(State.drawer.key); window.open(Contactos.wa(c,Calc.mensajeCobro(c)),'_blank'); },
     cerrarModal: () => ModalImg.cerrar(),
@@ -2717,7 +2719,7 @@ const IDB = {
 };
 
 const Remoto = {
-  K_URL:'deliz-api', K_CLAVE:'deliz-clave', K_CACHE:'deliz-cache', API_MIN:2, viejo:false,
+  K_URL:'deliz-api', K_CLAVE:'deliz-clave', K_CACHE:'deliz-cache', API_MIN:3, viejo:false,
   url(){ return CONFIG.apiUrl || (()=>{ try{ return localStorage.getItem(this.K_URL)||''; }catch(e){ return ''; } })(); },
   clave(){ try{ return localStorage.getItem(this.K_CLAVE)||''; }catch(e){ return ''; } },
   async llamar(action, extra, ms=30000){
@@ -2980,6 +2982,96 @@ const Datos = {
   },
   procesar(){ toast('La base ahora se edita directamente en Google Sheets.'); },
   olvidar(){}
+};
+
+/* ---------------- REGISTRAR PAGO ----------------
+   Marca en BD Ingresos los pedidos PTE más antiguos que cubre el valor recibido
+   (+ saldo a favor que ya tenía). Lo que sobra queda como saldo a favor. */
+const Pagar = {
+  id:null, c:null,
+  abrir(){
+    const c=State.M.clientes.get(State.drawer.key); if(!c) return;
+    const pend=c.pedidos.filter(v=>v.pendiente);
+    if(!pend.length){ toast('Este cliente no tiene pedidos pendientes.'); return; }
+    this.c=c; this.id='P'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+    const cred=Pagos.totalCliente(c.key), saldo=Calc.saldo(c);
+    const ult=[...c.pedidos].reverse().find(v=>!v.pendiente&&v.forma==='TRANSFERENCIA'&&v.banco);
+    const uniq=f=>[...new Set(State.M.ventas.map(f).filter(x=>x&&x!=='EFECTIVO'))].sort();
+    const bancos=uniq(v=>v.banco), dest=uniq(v=>v.destinatario), banco=ult?ult.banco:(bancos[0]||''), des=ult?ult.destinatario:'';
+    ModalImg.tk++; ModalImg.tipo='pago';
+    document.getElementById('modalBox').innerHTML=`
+      <div class="dr-head"><div style="flex:1;min-width:0;position:relative;z-index:1"><div class="lbl-s">Registrar pago</div><h2 style="font-size:22px">${U.esc(c.nombre)}</h2><div class="muted" style="font-size:12px">${U.esc(c.grupo)} · debe ${U.money(saldo)} (${pend.length} pedido${pend.length>1?'s':''})${cred>0.004?` · saldo a favor ${U.money(cred)}`:''}</div></div><button class="btn ghost" data-action="cerrarModal">${I.x}</button></div>
+      <div class="pad" style="overflow:auto">
+        <div class="rep-form" style="grid-template-columns:1fr 1fr">
+          <div class="field"><label>Valor recibido</label><input type="number" id="pgValor" step="0.01" min="0" inputmode="decimal" value="${saldo.toFixed(2)}"></div>
+          <div class="field"><label>Fecha de pago</label><input type="date" id="pgFecha" value="${U.iso(U.hoy())}"></div>
+        </div>
+        <div class="field"><label>Forma de pago</label><div class="seg" id="pgForma"><button class="on" data-action="pgForma" data-f="TRANSFERENCIA">Transferencia</button><button data-action="pgForma" data-f="EFECTIVO">Efectivo</button></div></div>
+        <div class="rep-form" style="grid-template-columns:1fr 1fr" id="pgBancoF">
+          <div class="field"><label>Banco</label><input id="pgBanco" list="pgBancos" value="${U.esc(banco)}" autocomplete="off"><datalist id="pgBancos">${bancos.map(b=>`<option value="${U.esc(b)}">`).join('')}</datalist></div>
+          <div class="field"><label>Destinatario (quién recibió)</label><input id="pgDest" list="pgDests" value="${U.esc(des)}" autocomplete="off"><datalist id="pgDests">${dest.map(b=>`<option value="${U.esc(b)}">`).join('')}</datalist></div>
+        </div>
+        <div class="note" style="margin-top:14px" id="pgResumen"></div>
+        <div class="rep" id="pgMsg" style="display:none"></div>
+      </div>
+      <div class="modal-foot"><button class="btn primary" id="pgBtn" data-action="pgGuardar">Registrar pago</button><button class="btn" data-action="cerrarModal">Cancelar</button></div>`;
+    document.getElementById('modal').classList.add('on');
+    ['pgValor','pgFecha'].forEach(i=>document.getElementById(i).addEventListener('input',()=>this.resumen()));
+    this.resumen(); setTimeout(()=>document.getElementById('pgValor')?.select(),50);
+  },
+  forma(f){ document.querySelectorAll('#pgForma button').forEach(b=>b.classList.toggle('on',b.dataset.f===f)); document.getElementById('pgBanco').closest('.field').style.display=f==='EFECTIVO'?'none':''; this.resumen(); },
+  formaSel(){ const b=document.querySelector('#pgForma button.on'); return b?b.dataset.f:'TRANSFERENCIA'; },
+  calcular(){
+    const c=this.c, monto=U.r2(parseFloat(document.getElementById('pgValor').value)||0), cred=Pagos.totalCliente(c.key);
+    const pend=c.pedidos.filter(v=>v.pendiente), disp=U.r2(monto+cred), cub=[]; let acc=0;
+    for(const v of pend){ if(acc+v.valor<=disp+0.004){ cub.push(v); acc=U.r2(acc+v.valor); } else break; }
+    return {monto,cred,pend,cub,acc,favor:Math.max(0,U.r2(disp-acc)),resta:pend.slice(cub.length)};
+  },
+  resumen(){
+    const R=this.calcular(), el=document.getElementById('pgResumen'); if(!el) return;
+    if(!(R.monto>0)){ el.innerHTML='<span class="ic">i</span><span>Escribe el valor que recibiste.</span>'; return; }
+    const restaV=U.sum(R.resta,v=>v.valor);
+    el.innerHTML=`<span class="ic">✓</span><span>${R.cub.length?`Se marcarán como <b>pagados ${R.cub.length} pedido${R.cub.length>1?'s':''}</b> (del ${U.fdate(R.cub[0].f)} al ${U.fdate(R.cub[R.cub.length-1].f)}) por <b>${U.money(R.acc)}</b> en tu hoja.`:`El valor no alcanza para el pedido más antiguo (${U.money(R.pend[0].valor)}): <b>no se marcará ningún pedido</b>.`}
+      ${R.cred>0.004?` Se usa el saldo a favor anterior (${U.money(R.cred)}).`:''}
+      ${R.favor>0.004?` Quedará <b>${U.money(R.favor)} a favor</b> del cliente.`:''}
+      ${R.resta.length?` Siguen pendientes ${R.resta.length} pedido${R.resta.length>1?'s':''} (${U.money(restaV)}).`:' La cuenta queda al día.'}</span>`;
+  },
+  msg(html,err){ const m=document.getElementById('pgMsg'); if(!m) return; m.style.display=''; m.innerHTML=`<div class="${err?'err':'ok'}">${html}</div>`; },
+  /* Saldo a favor: los abonos vigentes se consumen y queda uno nuevo con lo que sobra */
+  actualizarCredito(R,fecha){
+    Envios.cargar(); const c=this.c;
+    for(const a of Envios.st.abonos){ if(a.key===c.key && Envios.vigente(a)) a.consumido=fecha; }
+    if(R.favor>0.004) Envios.st.abonos.push({id:'a'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), envioId:null, key:c.key, fecha, valor:R.favor, nota:'Saldo a favor de pago', favor:true, sigs:R.resta.map(v=>v.sig)});
+    Envios.guardar(); Envios.aplicar();
+  },
+  async guardar(){
+    const R=this.calcular(), fecha=document.getElementById('pgFecha').value, forma=this.formaSel(), c=this.c;
+    const banco=forma==='EFECTIVO'?'':document.getElementById('pgBanco').value.trim().toUpperCase(), dest=document.getElementById('pgDest').value.trim().toUpperCase();
+    if(!(R.monto>0)) return this.msg('Escribe el valor recibido.',true);
+    if(!fecha) return this.msg('Elige la fecha de pago.',true);
+    if(forma==='TRANSFERENCIA'&&!banco) return this.msg('Escribe el banco de la transferencia.',true);
+    const btn=document.getElementById('pgBtn'); btn.disabled=true; btn.textContent='Registrando en Google…';
+    try{
+      if(R.cub.length){
+        const pago={id:this.id, fecha, forma, banco, destinatario:dest, cliente:c.nombre, grupo:c.grupo, recibido:R.monto, aplicado:R.acc, favor:R.favor,
+          pedidos:R.cub.map(v=>{ const i=v.sig.lastIndexOf('#'); return {base:v.sig.slice(0,i), n:+v.sig.slice(i+1)}; })};
+        const r=await Remoto.llamar('pagar',{pago},60000);
+        if(!r.marcados){ this.msg(`No se marcó ningún pedido: ${r.yaPagados.length?`${r.yaPagados.length} ya estaban pagados en la hoja`:''}${r.noEncontrados.length?` ${r.noEncontrados.length} no se encontraron (¿se editó la hoja?)`:''}. Pulsa “Actualizar ahora” y revisa.`,true); btn.disabled=false; btn.textContent='Registrar pago'; return; }
+        this.actualizarCredito(R,fecha);
+        ModalImg.cerrar();
+        const aviso=(r.yaPagados.length||r.noEncontrados.length)?` (${r.yaPagados.length+r.noEncontrados.length} ya no estaban en PTE)`:'';
+        toast(`✓ Pago registrado: ${r.marcados} pedido${r.marcados>1?'s':''} marcado${r.marcados>1?'s':''} en tu hoja${aviso}${R.favor>0.004?` · ${U.money(R.favor)} a favor`:''}`);
+        await Sync.refrescar(true);
+      }else{
+        this.actualizarCredito(R,fecha); ModalImg.cerrar();
+        toast(`Se guardó ${U.money(R.monto)} como saldo a favor de ${c.nombre}.`); UI.render(false); if(Drawer.abierto()) Drawer.render();
+      }
+    }catch(err){
+      const t=err.code==='ACCION'?'Tu Code.gs es una versión anterior: pega el Code.gs nuevo y publica una “Nueva versión”.':
+        err.code==='RED'?'Sin conexión con Google: el pago NO se registró. Vuelve a pulsar cuando tengas internet (no se duplicará).':U.esc(err.message);
+      this.msg(t,true); btn.disabled=false; btn.textContent='Reintentar';
+    }
+  }
 };
 
 /* ---------------- INICIO ---------------- */
