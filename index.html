@@ -563,6 +563,27 @@ table.sn tfoot td{background:var(--surface-2);font-weight:900}
 .login-card small{color:#8c97c2;font-size:11px}
 .login-err{min-height:16px;color:#fca5a5;font-size:12.5px;font-weight:700}
 .nav-btn .pill:empty{display:none}
+/* ---- Ajustes para celulares pequeños (no cambia la vista de computadora) ---- */
+@media (max-width:600px){
+  .modal-foot .btn{flex:1 1 120px;min-width:0;padding:12px 10px;font-size:13px}
+  .modal-foot .btn,.dr-foot .btn{white-space:normal;line-height:1.15;text-align:center}
+  .dr-foot{padding:12px 14px;gap:8px}
+  .dr-foot .btn{min-width:0;padding:12px 8px;font-size:12.5px;letter-spacing:0}
+  .modal .dr-head{position:relative;padding-right:58px}
+  .modal .dr-head>.btn.ghost:last-child{position:absolute;top:14px;right:12px;flex:none}
+  .modal .seg{display:flex;flex-wrap:wrap}.modal .seg button{flex:1 1 auto;min-width:0;white-space:normal}
+  .nav-btn{min-width:0;font-size:10px;letter-spacing:0}
+  .nav-btn span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .kpi .val{font-size:clamp(16px,5.6vw,22px);overflow-wrap:anywhere}
+  .period select{font-size:13px;padding:10px 12px}
+}
+@media (max-width:420px){ .pg-row .badge{display:none} .modal .rep-form{grid-template-columns:1fr!important} .modal .rep-form>*{grid-column:auto!important} .modal [data-action="tesAddCta"]{width:100%} }
+@media (max-width:380px){
+  .kpi .val{font-size:clamp(15px,5.3vw,19px)}
+  .nav-btn{font-size:9.5px;padding:8px 2px}
+  .dr-foot .btn svg{display:none}
+  .seg button{font-size:11.5px}
+}
 </style>
 </head>
 <body>
@@ -1008,7 +1029,7 @@ const Calc = {
     if(nDup) out.push({t:`${nDup} casos de más de un registro del mismo cliente el mismo día`, d:'Parecen pedidos adicionales legítimos (ej. $3.00 + $0.50); no se eliminan.'});
     return out;
   },
-  porCategoria(gastos){ if(!gastos.some(g=>g.categoria)) return null; const m=new Map(); gastos.forEach(g=>{ const k=g.categoria||'Sin categoría'; m.set(k,(m.get(k)||0)+g.valor); }); return [...m].map(([c,v])=>({c,v})).sort((a,b)=>b.v-a.v); },
+  porCategoria(gastos){ if(!gastos.some(g=>g.categoria)) return null; const m=new Map(); gastos.forEach(g=>{ const k=g.categoria||(g.app?'Sin categoría':'BD Egresos (sin detalle)'); m.set(k,(m.get(k)||0)+g.valor); }); return [...m].map(([c,v])=>({c,v})).sort((a,b)=>b.v-a.v); },
   buscar(lista, q){ const t=U.norm(q).split(/\s+/).filter(Boolean); return t.length ? lista.filter(c=>t.every(x=>c.busq.includes(x))) : lista; },
   quincenas(pedidos){
     const m=new Map();
@@ -1673,6 +1694,7 @@ const Views = {
         <div class="search">${I.search}<input data-input="cobQ" placeholder="Buscar por nombre, apellido o grupo…" value="${U.esc(c.q)}" autocomplete="off"><kbd>/</kbd></div>
         <select class="sel" data-change="cobEstado"><option value="todos">Todos los estados</option><option value="vencido">Con saldo vencido</option><option value="porvencer">Solo por vencer</option></select>
         <select class="sel" data-change="cobOrden"><option value="monto">Mayor deuda</option><option value="antig">Más antigua</option><option value="nombre">Nombre A–Z</option><option value="pedidos">Más pedidos</option></select>
+        <button class="btn" data-action="cortes" title="Días de corte por grupo">✂ Cortes</button>
         <button class="btn primary" data-action="zipFiltrados" id="btnZipF">⬇ Imágenes</button>
       </div>
       <div id="cobFiltros" style="margin:-4px 0 10px"></div>
@@ -1746,19 +1768,20 @@ const Views = {
 const Drawer = {
   abrir(key, lista){
     const c=State.M.clientes.get(key); if(!c) return;
-    State.drawer={key, periodo:Calc.saldo(c)>0.004?'pend':'todo', lista: lista&&lista.length?lista:[key]};
+    State.drawer={key, periodo:Calc.saldo(c)>0.004?(Corte.dividido(c)?'corte':'pend'):'todo', lista: lista&&lista.length?lista:[key]};
     this.render();
     const d=document.getElementById('drawer'); d.classList.add('on'); d.setAttribute('aria-hidden','false'); document.getElementById('scrim').classList.add('on');
   },
   mover(dir){
     const L=State.drawer.lista, i=L.indexOf(State.drawer.key), j=i+dir; if(j<0||j>=L.length) return;
-    const c=State.M.clientes.get(L[j]); State.drawer.key=L[j]; State.drawer.periodo=Calc.saldo(c)>0.004?'pend':'todo'; this.render();
+    const c=State.M.clientes.get(L[j]); State.drawer.key=L[j]; State.drawer.periodo=Calc.saldo(c)>0.004?(Corte.dividido(c)?'corte':'pend'):'todo'; this.render();
   },
   cerrar(){ ModalImg.tk++; const d=document.getElementById('drawer'); d.classList.remove('on'); d.setAttribute('aria-hidden','true'); document.getElementById('scrim').classList.remove('on'); State.drawer.key=null; Tip.hide(); },
   abierto(){ return !!State.drawer.key; },
   filas(){
     const c=State.M.clientes.get(State.drawer.key), p=State.drawer.periodo;
     if(p==='pend') return {filas:c.pedidos.filter(v=>v.pendiente), label:'Pedidos pendientes', solo:true};
+    if(p==='corte') return {filas:Corte.pend(c), label:Corte.label(c), solo:true};
     if(p==='todo') return {filas:c.pedidos, label:`${U.fdate(c.primera)} – ${U.fdate(c.ultima)}`, solo:false};
     const f=c.pedidos.filter(v=>v.mes===p); return {filas:f, label:U.mesLabel(p), solo:f.every(v=>v.pendiente)};
   },
@@ -1776,7 +1799,8 @@ const Drawer = {
       <div class="dr-body">
         <div class="grid g-2" style="gap:12px">
           <div><div class="lbl-s">Total pendiente</div><div class="saldo num" style="color:${saldo>0.004?'var(--crit)':'var(--good)'}">${cnt(saldo)}</div>
-            <div class="muted" style="font-size:12px">${c.nPend?`${c.nPend} pedido${c.nPend>1?'s':''} · desde ${U.fdate(c.primeraPend)}`:'✓ Sin pendientes'}</div></div>
+            <div class="muted" style="font-size:12px">${c.nPend?`${c.nPend} pedido${c.nPend>1?'s':''} · desde ${U.fdate(c.primeraPend)}`:'✓ Sin pendientes'}</div>
+            ${Corte.dividido(c)?(()=>{ const cor=Corte.pend(c), a=U.sum(cor,v=>v.valor), t=U.sum(c.pedidos.filter(v=>v.pendiente),v=>v.valor); return `<div style="font-size:12px;margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="chip-g" style="background:var(--crit-soft,rgba(232,98,122,.15));color:var(--crit)">Al corte ${U.fdateShort(Corte.fecha(c.grupo))}: <b>${U.money(Math.max(0,a-Pagos.totalCliente(c.key)))}</b></span><span class="chip-g">Próximo corte: <b>${U.money(t-a)}</b></span></div>`; })():''}</div>
           <div style="font-size:13px;display:flex;flex-direction:column;gap:4px;justify-content:center">
             <div style="display:flex;justify-content:space-between"><span class="muted">Consumo histórico</span><b class="num">${U.money(c.total)}</b></div>
             <div style="display:flex;justify-content:space-between"><span class="muted">Pedidos / almuerzos</span><b class="num">${c.pedidos.length} / ${c.almuerzos}</b></div>
@@ -1787,7 +1811,7 @@ const Drawer = {
         ${meses.length>1?`<div style="margin-top:16px"><div class="lbl-s" style="margin-bottom:4px">Consumo por mes <span style="text-transform:none;letter-spacing:0;font-weight:400">· clic en un mes para verlo</span></div><div id="drChart"></div></div>`:''}
         <div class="toolbar" style="margin:14px 0 8px"><span class="lbl-s">Periodo</span>
           <select class="sel" data-change="drPeriodo" style="flex:1">
-            ${pendF.length?'<option value="pend">Solo pendientes</option>':''}<option value="todo">Todo el historial</option>
+            ${Corte.dividido(c)?`<option value="corte">Hasta el corte (${U.fdate(Corte.fecha(c.grupo))})</option>`:''}${pendF.length?'<option value="pend">Todo lo pendiente</option>':''}<option value="todo">Todo el historial</option>
             ${meses.slice().reverse().map(m=>`<option value="${m}">${U.mesLabel(m)}</option>`).join('')}
           </select></div>
         <div class="muted" style="font-size:12px;margin-bottom:6px">${U.esc(label)} · ${filas.length} pedido${filas.length!==1?'s':''}</div>
@@ -1865,7 +1889,7 @@ const ModalImg = {
   tipo:null, tk:0,
   cerrar(){ this.tk++; if(Lote.corriendo) Lote.cancelar=true; document.getElementById('modal').classList.remove('on'); this.tipo=null; },
   abierto(){ return document.getElementById('modal').classList.contains('on'); },
-  registrar(){ if(State.drawer.periodo!=='pend'||!State.drawer.key) return; const c=State.M.clientes.get(State.drawer.key); if(c) Envios.registrar(c, c.pedidos.filter(v=>v.pendiente)); },
+  registrar(){ if(!['pend','corte'].includes(State.drawer.periodo)||!State.drawer.key) return; const c=State.M.clientes.get(State.drawer.key); if(!c) return; const f=Drawer.filas().filas; if(f.length) Envios.registrar(c, f); },
   descargar(){ Lote.bajar(State.img.blob, State.img.nombre); this.registrar(); toast('Imagen descargada · registrada en Enviados.'); },
   async compartir(){ try{ await navigator.share({files:[new File([State.img.blob],State.img.nombre,{type:State.img.blob.type})], title:'Detalle de pedidos'}); this.registrar(); }catch(e){ if(e.name!=='AbortError') toast('No se pudo compartir. Usa el botón Descargar.'); } },
   async copiar(){ try{ let b=State.img.blob; if(b.type!=='image/png'){ const bm=await createImageBitmap(b), cv=document.createElement('canvas'); cv.width=bm.width; cv.height=bm.height; cv.getContext('2d').drawImage(bm,0,0); b=await new Promise(r=>cv.toBlob(r,'image/png')); } await navigator.clipboard.write([new ClipboardItem({'image/png':b})]); this.registrar(); toast('Imagen copiada · registrada en Enviados. Pégala en WhatsApp Web con Ctrl+V.'); }catch(e){ toast('El navegador no permitió copiar. Usa el botón Descargar.'); } }
@@ -1885,6 +1909,7 @@ const Lote = {
       <div class="dr-head"><div style="flex:1"><div class="lbl-s">Descarga en lote</div><h2 style="font-size:22px">${U.esc(titulo)}</h2></div><button class="btn ghost" data-action="cerrarModal">${I.x}</button></div>
       <div class="pad">
         <div class="src-card"><div><small>Clientes</small><b class="num">${cl.length}</b></div><div><small>Total pendiente</small><b class="num" style="color:var(--crit)">${U.money(tot)}</b></div><div><small>Grupos</small><b class="num">${grupos.size}</b></div></div>
+        <div class="opt-row"><span class="lbl-s">Incluir</span><div class="seg"><button class="${Lote.modo!=='todo'?'on':''}" data-action="loteModo" data-m="corte">Hasta el corte de cada grupo</button><button class="${Lote.modo==='todo'?'on':''}" data-action="loteModo" data-m="todo">Todo lo pendiente</button></div></div>
         <div class="opt-row"><span class="lbl-s">Estilo</span>${ImgCfg.segEstilos('estiloLote')}<span class="lbl-s" style="margin-left:8px">Formato</span>${ImgCfg.segFormato('formatoLote')}</div>
         <div class="muted" style="font-size:12.5px">Se genera una imagen del estado de cuenta (solo pendientes) por cliente, organizado en carpetas por grupo, más un <b>resumen_cobros.csv</b> para Excel.</div>
         ${ImgCfg.campos()}
@@ -1904,11 +1929,12 @@ const Lote = {
     const n=this.keys.length, csv=[['Cliente','Grupo','Pedidos pendientes','Almuerzos','Pendiente desde','Vencido','Por vencer','Total pendiente']];
     for(let i=0;i<n;i++){
       if(this.cancelar) break;
-      const c=State.M.clientes.get(this.keys[i]), filas=c.pedidos.filter(v=>v.pendiente);
+      const c=State.M.clientes.get(this.keys[i]), porCorte=this.modo!=='todo', filas=porCorte?Corte.pend(c):c.pedidos.filter(v=>v.pendiente);
+      if(!filas.length) continue;
       txt.textContent=`Generando ${i+1} de ${n} · ${c.nombre}`;
-      const blob=await ImageGen.generar(ImgCfg.datos(c,filas,ImgCfg.labelPend(c),true));
+      const blob=await ImageGen.generar(ImgCfg.datos(c,filas,porCorte?Corte.label(c):ImgCfg.labelPend(c),true));
       const data=new Uint8Array(await blob.arrayBuffer());
-      this.archivos.push({name:`${this.limpio(c.grupo)}/${this.limpio(c.nombre)}.${ImgCfg.ext()}`, data, blob, c});
+      this.archivos.push({name:`${this.limpio(c.grupo)}/${this.limpio(c.nombre)}.${ImgCfg.ext()}`, data, blob, c, filas});
       if(i<24){ const im=new Image(); im.src=URL.createObjectURL(blob); im.title=c.nombre; th.appendChild(im); }
       const venc=U.sum(filas.filter(v=>v.estado==='vencido'),v=>v.valor);
       csv.push([c.nombre,c.grupo,c.nPend,c.almPend,U.fdate(c.primeraPend),venc.toFixed(2),(Calc.saldo(c)-venc).toFixed(2),Calc.saldo(c).toFixed(2)]);
@@ -1919,7 +1945,7 @@ const Lote = {
     if(!this.archivos.length){ foot.innerHTML='<button class="btn" data-action="cerrarModal">Cerrar</button>'; txt.textContent='Proceso detenido.'; return; }
     const csvTxt='﻿'+csv.map(r=>r.map(v=>{ v=String(v); return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(';')).join('\r\n');
     const files=this.archivos.map(a=>({name:a.name,data:a.data})).concat([{name:'resumen_cobros.csv',data:new TextEncoder().encode(csvTxt)}]);
-    this.archivos.forEach(a=>Envios.registrar(a.c, a.c.pedidos.filter(v=>v.pendiente)));
+    this.archivos.forEach(a=>Envios.registrar(a.c, a.filas));
     this.zip=Zip.crear(files); this.zipNombre=`estados_de_cuenta_${U.iso(new Date())}.zip`;
     this.bajar(this.zip,this.zipNombre);
     const mb=(this.zip.size/1048576).toFixed(1);
@@ -2168,7 +2194,7 @@ const Tes = {
     for(const v of State.M.ventas){ if(v.pendiente) continue; const f=U.iso(this.fechaCobro(v)); if(f<=c) continue;
       const k=f+'#'+this.keyVenta(v); const a=g.get(k)||{fecha:f,cuenta:this.keyVenta(v),tipo:'cobro',entrada:0,salida:0,n:0,auto:true}; a.entrada+=v.valor; a.n++; g.set(k,a); }
     g.forEach(a=>{ a.entrada=U.r2(a.entrada); a.concepto=`Cobros de clientes (${a.n})`; out.push(a); });
-    for(const e of State.M.gastos){ if(e.fecha<=c||!(e.valor>0)) continue; out.push({fecha:e.fecha,cuenta:'CAJA',tipo:'gasto',entrada:0,salida:e.valor,concepto:e.concepto||(e.categoria?`Egreso · ${e.categoria}`:'Egresos del día (BD Egresos)'),auto:true}); }
+    for(const e of State.M.gastos){ if(e.app||e.fecha<=c||!(e.valor>0)) continue; out.push({fecha:e.fecha,cuenta:'CAJA',tipo:'gasto',entrada:0,salida:e.valor,concepto:e.concepto||(e.categoria?`Egreso · ${e.categoria}`:'Egresos del día (BD Egresos)'),auto:true}); }
     for(const m of this.st.movs){ if(m.fecha<=c) continue;
       if(m.tipo==='ingreso') out.push({id:m.id,fecha:m.fecha,cuenta:m.cuenta,tipo:'ingreso',entrada:m.valor,salida:0,concepto:m.concepto||'Ingreso'});
       else if(m.tipo==='egreso') out.push({id:m.id,fecha:m.fecha,cuenta:m.cuenta,tipo:'egreso',entrada:0,salida:m.valor,concepto:m.concepto||'Egreso'});
@@ -2217,7 +2243,7 @@ const Tes = {
     const meses=[...new Set(movs.map(m=>m.fecha.slice(0,7)))].sort().reverse();
     v.innerHTML=`
       <div class="page-head"><div><div class="eyebrow">Tesorería</div><h1>Saldos y caja</h1><p>Cuadre inicial al ${U.fdate(U.parse(c))} · cobros de la hoja hasta ${U.fdate(State.M.fechaMax)} · ${this.st.movs.length} movimiento${this.st.movs.length!==1?'s':''} registrado${this.st.movs.length!==1?'s':''}</p></div>
-        <div class="period"><button class="btn primary" data-action="tesMov">＋ Registrar movimiento</button><button class="btn" data-action="tesCuadre">Cuadre</button><button class="btn" data-action="tesRespaldo">Respaldo</button></div></div>
+        <div class="period"><button class="btn primary" data-action="tesMov" data-t="egreso">− Registrar gasto</button><button class="btn" data-action="tesMov" data-t="retiro">🏧 Retiro a caja</button><button class="btn" data-action="tesMov">＋ Movimiento</button><button class="btn" data-action="tesCuadre">Cuadre</button><button class="btn" data-action="tesRespaldo">Respaldo</button></div></div>
       <div class="grid g-4">
         ${kpi('<i class="dot"></i>Total disponible',`<span class="${tot<0?'neg':''}">${cnt(tot)}</span>`,'Bancos + caja','lux gx gv')}
         ${kpi('<i class="dot"></i>En bancos',cnt(totB),`${bancos.length} cuenta${bancos.length!==1?'s':''}`,'lux gx gu')}
@@ -2231,7 +2257,7 @@ const Tes = {
           ${this.avatar(a)}<div class="acc-t"><b>${U.esc(a.banco)}</b><span>${U.esc(a.titular)}</span></div>
           <div class="acc-v num ${a.saldo<0?'neg':''}">${U.money(a.saldo)}</div>
           <div class="acc-f"><span class="up">↑ ${U.money(a.entradas)}</span><span class="down">↓ ${U.money(a.salidas)}</span><span class="muted">inicial ${U.money(a.inicial)}</span></div>
-          <div class="acc-b"><button class="btn sm" data-action="tesMov" data-t="ingreso" data-k="${U.esc(a.k)}">＋ Ingreso</button><button class="btn sm" data-action="tesMov" data-t="${a.caja?'egreso':'retiro'}" data-k="${U.esc(a.k)}">${a.caja?'− Gasto':'↧ Retiro'}</button></div>
+          <div class="acc-b"><button class="btn sm" data-action="tesMov" data-t="ingreso" data-k="${U.esc(a.k)}">＋ Ingreso</button><button class="btn sm" data-action="tesMov" data-t="${a.caja?'egreso':'retiro'}" data-k="${U.esc(a.k)}">${a.caja?'− Gasto':'↧ Retiro'}</button><button class="btn sm" data-action="tesAjustar" data-k="${U.esc(a.k)}" title="Corregir el saldo con el valor real">✎ Ajustar</button></div>
         </div>`).join('')}</div>
       ${(()=>{ const ocultas=S.filter(a=>!(a.caja||a.inicial||a.entradas||a.salidas)).length; return ocultas?`<div style="text-align:center;margin-top:12px"><button class="btn sm" data-action="tesToggleCtas">${this.filtro.todas?'Ocultar cuentas sin movimiento':`Mostrar ${ocultas} cuenta${ocultas>1?'s':''} sin movimiento`}</button></div>`:''; })()}
       <div class="card mt"><div class="card-head"><div><h3>Movimientos</h3><p class="sub">Automáticos (cobros de la hoja y BD Egresos) y registrados por ti</p></div>
@@ -2254,7 +2280,7 @@ const Tes = {
     el.innerHTML = L.length ? `<div class="tbl-wrap" style="max-height:520px;overflow:auto"><table><thead><tr><th>Fecha</th><th>Cuenta</th><th>Tipo</th><th>Concepto</th><th class="r">Entrada</th><th class="r">Salida</th><th></th></tr></thead>
       <tbody>${L.slice(0,400).map(m=>`<tr><td>${U.fdate(U.parse(m.fecha))}</td><td>${U.esc(this.info(m.cuenta).nombre)}</td><td>${tipo[m.tipo]}</td><td>${U.esc(m.concepto)}${m.auto?' <span class="chip-g">auto</span>':''}</td>
         <td class="r num up">${m.entrada?U.money(m.entrada):''}</td><td class="r num down">${m.salida?U.money(m.salida):''}</td>
-        <td class="r">${m.auto?'':(this.borrar===m.id?`<button class="btn sm" data-action="tesDelOk" data-id="${m.id}" style="color:var(--crit)">Eliminar</button> <button class="btn sm" data-action="tesDelNo">No</button>`:`<button class="btn ghost sm" data-action="tesDel" data-id="${m.id}" title="Eliminar">✕</button>`)}</td></tr>`).join('')}</tbody>
+        <td class="r">${m.auto?'':(this.borrar===m.id?`<button class="btn sm" data-action="tesDelOk" data-id="${m.id}" style="color:var(--crit)">Eliminar</button> <button class="btn sm" data-action="tesDelNo">No</button>`:`<button class="btn ghost sm" data-action="tesEdit" data-id="${m.id}" title="Editar">✎</button><button class="btn ghost sm" data-action="tesDel" data-id="${m.id}" title="Eliminar">✕</button>`)}</td></tr>`).join('')}</tbody>
       <tfoot><tr><td colspan="4">${L.length} movimiento${L.length!==1?'s':''}${L.length>400?' (se muestran 400)':''}</td><td class="r num">${U.money(U.sum(L,m=>m.entrada))}</td><td class="r num">${U.money(U.sum(L,m=>m.salida))}</td><td></td></tr></tfoot></table></div>`
       : '<div class="empty">Aún no hay movimientos después del corte.</div>';
   },
@@ -2293,7 +2319,7 @@ const Tes = {
     this.cargar(); if(!this.st.corte){ this.cuadre(); toast('Primero haz el cuadre inicial.'); return; }
     const cs=this.cuentas(), t=tipo==='retiro'?'transfer':tipo, opts=sel=>cs.map(a=>`<option value="${U.esc(a.k)}" ${a.k===sel?'selected':''}>${U.esc(a.nombre)}</option>`).join('');
     const cta=cuenta||(t==='egreso'?'CAJA':cs.find(a=>!a.caja)?.k||'CAJA'), dest=tipo==='retiro'?'CAJA':(cs.find(a=>a.k!==cta)?.k||'CAJA');
-    this._t=t;
+    this._t=t; this._edit=null;
     this.abrirModal(`
       <div class="dr-head"><div style="flex:1;min-width:0;position:relative;z-index:1"><div class="lbl-s">Tesorería</div><h2 style="font-size:22px">Registrar movimiento</h2></div><button class="btn ghost" data-action="cerrarModal">${I.x}</button></div>
       <div class="pad">
@@ -2306,13 +2332,15 @@ const Tes = {
         </div>
         <div class="field"><label>Concepto</label><input id="tesConcepto" list="tesConceptos" placeholder="${t==='transfer'?'Retiro en cajero':t==='egreso'?'Compra de insumos':'Depósito'}"></div>
         <datalist id="tesConceptos"><option>Depósito</option><option>Retiro en cajero</option><option>Compra de insumos</option><option>Mercado</option><option>Gas</option><option>Pago a proveedor</option><option>Sueldo / ayudante</option><option>Transporte</option><option>Servicios básicos</option><option>Aporte de capital</option></datalist>
-        <div class="muted" style="font-size:11.5px;margin-top:10px">Un <b>retiro en cajero</b> es una transferencia del banco a la caja: baja el banco y sube la caja. Los gastos diarios de BD Egresos ya se descuentan solos de la caja; registra aquí solo los que no estén en esa hoja.</div>
+        <div class="field" id="tesGastoBox" style="${t==='egreso'?'':'display:none'}"><label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)"><input type="checkbox" id="tesEsGasto" checked style="width:18px;height:18px;accent-color:var(--accent)"> Es gasto del negocio (cuenta en Gastos y Utilidad)</label>
+          <input id="tesCat" list="tesCats" placeholder="Categoría (opcional): Mercado, Gas, Sueldos…" autocomplete="off" style="margin-top:6px"><datalist id="tesCats">${[...new Set(['MERCADO','GAS','TRANSPORTE','SUELDOS','SERVICIOS BÁSICOS','EMPAQUES','LIMPIEZA','OTROS',...this.st.movs.map(m=>m.categoria).filter(Boolean)])].map(c=>`<option value="${U.esc(c)}">`).join('')}</datalist></div>
+        <div class="muted" style="font-size:11.5px;margin-top:10px">Un <b>retiro en cajero</b> es una transferencia del banco a la caja: baja el banco y sube la caja. Los <b>gastos</b> que registres aquí se restan de la cuenta elegida y cuentan en el resumen; ya no hace falta anotarlos en BD Egresos (si lo haces, se contarían dos veces).</div>
       </div>
       <div class="modal-foot"><button class="btn primary" data-action="tesGuardarMov">Guardar</button><button class="btn" data-action="cerrarModal">Cancelar</button></div>`);
     setTimeout(()=>document.getElementById('tesValor')?.focus(),50);
   },
   tipo(t){ this._t=t; document.querySelectorAll('[data-action="tesTipo"]').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
-    document.getElementById('tesDestBox').style.display=t==='transfer'?'':'none'; document.getElementById('tesLblCta').textContent=t==='transfer'?'Sale de':'Cuenta';
+    document.getElementById('tesDestBox').style.display=t==='transfer'?'':'none'; { const gb=document.getElementById('tesGastoBox'); if(gb) gb.style.display=t==='egreso'?'':'none'; } document.getElementById('tesLblCta').textContent=t==='transfer'?'Sale de':'Cuenta';
     document.getElementById('tesConcepto').placeholder=t==='transfer'?'Retiro en cajero':t==='egreso'?'Compra de insumos':'Depósito'; },
   guardarMov(){
     const t=this._t, cuenta=document.getElementById('tesCta').value, destino=document.getElementById('tesDest').value, fecha=document.getElementById('tesFecha').value;
@@ -2321,8 +2349,11 @@ const Tes = {
     if(!fecha||fecha<=this.st.corte){ toast(`La fecha debe ser posterior al corte (${U.fdate(U.parse(this.st.corte))}).`); return; }
     if(t==='transfer'&&cuenta===destino){ toast('La cuenta de origen y destino deben ser distintas.'); return; }
     const antes=this.saldos(this.movimientos()).find(s=>s.k===cuenta);
-    this.st.movs.push({id:'m'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),fecha,tipo:t,cuenta,destino:t==='transfer'?destino:null,valor,concepto,creado:new Date().toISOString()});
+    const rec={fecha,tipo:t,cuenta,destino:t==='transfer'?destino:null,valor,concepto,esGasto:t==='egreso'?!!document.getElementById('tesEsGasto')?.checked:false,categoria:t==='egreso'?((document.getElementById('tesCat')?.value||'').trim().toUpperCase()||null):null};
+    const editando=this._edit; if(editando){ const i=this.st.movs.findIndex(x=>x.id===editando); if(i>=0) this.st.movs[i]={...this.st.movs[i],...rec,editado:new Date().toISOString()}; this._edit=null; }
+    else this.st.movs.push({id:'m'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),...rec,creado:new Date().toISOString()});
     this.guardar(); ModalImg.cerrar(); this.vista();
+    if(editando){ toast('Movimiento actualizado. Saldos recalculados.'); return; }
     const neg=(t!=='ingreso')&&antes&&antes.saldo-valor<0;
     toast(neg?`Guardado. Ojo: ${this.info(cuenta).nombre} queda en negativo.`:'Movimiento guardado. Saldos actualizados.');
   },
@@ -2559,7 +2590,7 @@ const UI = {
     envMas: () => { Envios.limite+=300; Envios.lista(); },
     envAbono: d => Envios.modalAbono(d.id),
     envGuardarAbono: d => Envios.guardarAbono(d.id),
-    envPagoTotal: d => { const e=Envios.st.envios.find(x=>x.id===d.id); const s=Envios.estado(e); Envios.abonar(d.id,s.saldo,U.iso(new Date()),'Pago completo'); Envios.vista(); toast('Marcado como pagado.'); },
+    envPagoTotal: d => { const e=Envios.st.envios.find(x=>x.id===d.id); if(!e) return; const sg=e.sigs.filter(s=>Envios.pte(s)); if(!State.M.clientes.has(e.key)||!sg.length){ toast('Ese detalle ya no tiene pedidos pendientes.'); return; } Pagar.abrir(e.key, sg); },
     envDeshacer: d => { Envios.deshacer(d.id); Envios.vista(); toast('Abonos quitados; vuelve a pendiente.'); },
     envDel: d => { Envios.borrar=d.id; Envios.lista(); },
     envDelNo: () => { Envios.borrar=null; Envios.lista(); },
@@ -2573,6 +2604,9 @@ const UI = {
     tesAddCta: () => Tes.addCuenta(),
     tesMov: d => Tes.mov(d.t||'ingreso', d.k),
     tesTipo: d => Tes.tipo(d.t),
+    tesEdit: d => Tes.editar(d.id),
+    tesAjustar: d => Tes.ajustar(d.k),
+    tesAjGuardar: d => Tes.guardarAjuste(d.k),
     tesGuardarMov: () => Tes.guardarMov(),
     tesFiltroCta: d => { Tes.filtro.cuenta = Tes.filtro.cuenta===d.k?'TODAS':d.k; Tes.vista(); document.getElementById('tesTabla')?.scrollIntoView({behavior:'smooth',block:'start'}); },
     tesDel: d => { Tes.borrar=d.id; Tes.tabla(); },
@@ -2607,6 +2641,10 @@ const UI = {
     zipFiltrados: () => Lote.preparar(State.cobVisibles, State.cobVisibles.length===State.K.deudores?'Todos los pendientes':`${State.cobVisibles.length} clientes filtrados`),
     limpiarSel: () => Sel.limpiar(),
     loteIniciar: () => Lote.iniciar(),
+    loteModo: d => { Lote.modo=d.m; document.querySelectorAll('[data-action="loteModo"]').forEach(b=>b.classList.toggle('on',b.dataset.m===d.m)); },
+    cortes: () => Corte.abrir(),
+    corteGuardar: () => Corte.guardarModal(),
+    pgRapido: d => Pagar.rapido(+d.i),
     loteCancelar: () => { Lote.cancelar=true; },
     loteZip: () => Lote.bajar(Lote.zip, Lote.zipNombre),
     loteShare: () => Lote.compartir(),
@@ -2620,6 +2658,8 @@ const UI = {
     olvidarBase: () => Datos.olvidar(),
     pago: () => Pagar.abrir(),
     pgForma: d => Pagar.forma(d.f),
+    pgModo: d => Pagar.setModo(d.m),
+    pgTodos: d => Pagar.todos(d.on==='1'),
     pgGuardar: () => Pagar.guardar(),
     copiarMsg: async () => { try{ await navigator.clipboard.writeText(Calc.mensajeCobro(State.M.clientes.get(State.drawer.key))); toast('Mensaje copiado.'); }catch(e){ toast('No se pudo copiar el mensaje.'); } },
     abrirWa: () => { const c=State.M.clientes.get(State.drawer.key); window.open(Contactos.wa(c,Calc.mensajeCobro(c)),'_blank'); },
@@ -2761,18 +2801,20 @@ const Sync = {
     // Varias pestañas abiertas: se mantienen al día entre ellas (evita borrar lo que hizo la otra)
     addEventListener('storage',e=>{
       if(e.key===this.K_COLA){ try{ this.cola=JSON.parse(e.newValue||'[]'); }catch(x){} this.pintar(); return; }
-      if([Tes.KEY,Envios.KEY,CONFIG.storageImg].includes(e.key)){
-        clearTimeout(this.tDiff); this.sucio=false;
-        Tes.cargar(); Envios.cargar(); ImgCfg.cargar(); this.ultima=this.foto();
-        clearTimeout(this._tOtra); this._tOtra=setTimeout(()=>{ if(!State.M) return; Envios.aplicar(); if(!this.ocupado()) UI.render(false); },300);
+      if([Tes.KEY,Envios.KEY,CONFIG.storageImg,Corte.KEY].includes(e.key)){
+        if(this.sucio) this.diff();
+        Tes.cargar(); Envios.cargar(); ImgCfg.cargar(); Corte.cargar();
+        this.superponerCola(); this.ultima=this.foto();
+        clearTimeout(this._tOtra); this._tOtra=setTimeout(()=>{ if(!State.M) return; Envios.aplicar(); GastosApp.verificar(); if(!this.ocupado()) UI.render(false); },300);
       }
     });
   },
   guardarCola(){ try{ localStorage.setItem(this.K_COLA,JSON.stringify(this.cola)); }catch(e){ toast('⚠ El navegador no tiene espacio para la cola de cambios. Sincroniza ahora.'); } },
   ls(k){ try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } },
-  /* Foto de lo que hay en el navegador: tabla → id → JSON */
-  foto(){
-    const tes=this.ls(Tes.KEY)||{}, env=this.ls(Envios.KEY)||{}, img=this.ls(CONFIG.storageImg);
+  /* Estado actual en memoria de los módulos: tabla → id → objeto */
+  fotoObj(){
+    if(!Tes.st) Tes.cargar(); if(!Envios.st) Envios.cargar();
+    const tes=Tes.st||{}, env=Envios.st||{}, img=this.ls(CONFIG.storageImg)?{estilo:State.img.estilo,pago:State.img.pago||'',cierre:State.img.cierre||'',formato:State.img.formato}:null;
     const F={}; this.TABLAS.forEach(t=>F[t]=new Map());
     (tes.movs||[]).forEach(m=>m&&m.id&&F.MOVIMIENTOS.set(String(m.id),m));
     (tes.extras||[]).forEach(e=>e&&e.k&&F.CUENTAS.set(e.k,{id:e.k,k:e.k}));
@@ -2781,8 +2823,20 @@ const Sync = {
     if(tes.corte) F.AJUSTES.set('corte',{id:'corte',v:tes.corte});
     if(tes.iniciales&&Object.keys(tes.iniciales).length) F.AJUSTES.set('iniciales',{id:'iniciales',v:tes.iniciales});
     if(img) F.AJUSTES.set('img',{id:'img',v:img});
-    const S={}; for(const t of this.TABLAS){ S[t]=new Map(); F[t].forEach((o,id)=>S[t].set(id,JSON.stringify(o))); }
-    return S;
+    if(typeof Corte!=='undefined'&&Corte.cfg&&Object.keys(Corte.cfg.grupos||{}).length) F.AJUSTES.set('cortes',{id:'cortes',v:Corte.cfg});
+    return F;
+  },
+  /* Foto serializada (para comparar): tabla → id → JSON */
+  foto(){ const F=this.fotoObj(), S={}; for(const t of this.TABLAS){ S[t]=new Map(); F[t].forEach((o,id)=>S[t].set(id,JSON.stringify(o))); } return S; },
+  /* Vuelve a aplicar los cambios propios aún no confirmados sobre lo que hay en memoria */
+  superponerCola(){
+    if(!this.cola.length) return;
+    const F=this.fotoObj(), antes=JSON.stringify([...F.MOVIMIENTOS.keys(),...F.ENVIOS.keys(),...F.ABONOS.keys()]);
+    let cambio=false;
+    this.cola.forEach(op=>{ if(!F[op.t]) return; const id=String(op.id);
+      if(op.op==='del'){ if(F[op.t].has(id)){ F[op.t].delete(id); cambio=true; } }
+      else if(JSON.stringify(F[op.t].get(id))!==JSON.stringify(op.v)){ F[op.t].set(id,op.v); cambio=true; } });
+    if(cambio) this.escribir(F);
   },
   /* Escribe en el navegador el estado {tabla → Map(id → objeto)} */
   escribir(B){
@@ -2791,8 +2845,9 @@ const Sync = {
     const env={envios:[...B.ENVIOS.values()], abonos:[...B.ABONOS.values()]};
     this.aplicando=true;
     try{ localStorage.setItem(Tes.KEY,JSON.stringify(tes)); localStorage.setItem(Envios.KEY,JSON.stringify(env));
-      const img=aj('img'); if(img) localStorage.setItem(CONFIG.storageImg,JSON.stringify(img)); }catch(e){ toast('⚠ El navegador no tiene espacio suficiente.'); }
-    Tes.cargar(); Envios.cargar(); ImgCfg.cargar();
+      const img=aj('img'); if(img) localStorage.setItem(CONFIG.storageImg,JSON.stringify(img));
+      const cor=aj('cortes'); if(cor) localStorage.setItem(Corte.KEY,JSON.stringify(cor)); else localStorage.removeItem(Corte.KEY); }catch(e){ toast('⚠ El navegador no tiene espacio suficiente.'); }
+    Tes.cargar(); Envios.cargar(); ImgCfg.cargar(); Corte.cargar();
     this.aplicando=false;
   },
   /* Llamado por cada guardar() de los módulos. Se agrupan los cambios seguidos (p. ej. un lote de 80 envíos = 1 cálculo). */
@@ -2988,12 +3043,12 @@ const Datos = {
    Marca en BD Ingresos los pedidos PTE más antiguos que cubre el valor recibido
    (+ saldo a favor que ya tenía). Lo que sobra queda como saldo a favor. */
 const Pagar = {
-  id:null, c:null,
-  abrir(){
-    const c=State.M.clientes.get(State.drawer.key); if(!c) return;
+  id:null, c:null, modo:'valor', sel:null, manual:false,
+  abrir(key, sigs){
+    const c=State.M.clientes.get(key||State.drawer.key); if(!c) return;
     const pend=c.pedidos.filter(v=>v.pendiente);
     if(!pend.length){ toast('Este cliente no tiene pedidos pendientes.'); return; }
-    this.c=c; this.id='P'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+    this.c=c; this.id='P'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); this.modo='valor'; this.sel=new Set(pend.map(v=>v.sig)); this.manual=false;
     const cred=Pagos.totalCliente(c.key), saldo=Calc.saldo(c);
     const ult=[...c.pedidos].reverse().find(v=>!v.pendiente&&v.forma==='TRANSFERENCIA'&&v.banco);
     const uniq=f=>[...new Set(State.M.ventas.map(f).filter(x=>x&&x!=='EFECTIVO'))].sort();
@@ -3002,6 +3057,9 @@ const Pagar = {
     document.getElementById('modalBox').innerHTML=`
       <div class="dr-head"><div style="flex:1;min-width:0;position:relative;z-index:1"><div class="lbl-s">Registrar pago</div><h2 style="font-size:22px">${U.esc(c.nombre)}</h2><div class="muted" style="font-size:12px">${U.esc(c.grupo)} · debe ${U.money(saldo)} (${pend.length} pedido${pend.length>1?'s':''})${cred>0.004?` · saldo a favor ${U.money(cred)}`:''}</div></div><button class="btn ghost" data-action="cerrarModal">${I.x}</button></div>
       <div class="pad" style="overflow:auto">
+        ${this.rapidos(c).length?`<div class="field" style="margin-top:0"><label>Cobrar rápido</label><div style="display:flex;flex-wrap:wrap;gap:8px">${this.rapidos(c).map((r,i)=>`<button class="chip" data-action="pgRapido" data-i="${i}" style="flex:1;min-width:150px;text-align:left"><b>${U.esc(r.t)}</b><span class="num">${U.money(r.v)}</span><small>${r.n} pedido${r.n>1?'s':''}</small></button>`).join('')}</div></div>`:''}
+        <div class="field"><label>¿Cómo paga?</label><div class="seg" id="pgModo"><button class="on" data-action="pgModo" data-m="valor">Un solo valor (más antiguos)</button><button data-action="pgModo" data-m="elegir">Elegir pedidos</button></div></div>
+        <div id="pgLista" style="display:none"></div>
         <div class="rep-form" style="grid-template-columns:1fr 1fr">
           <div class="field"><label>Valor recibido</label><input type="number" id="pgValor" step="0.01" min="0" inputmode="decimal" value="${saldo.toFixed(2)}"></div>
           <div class="field"><label>Fecha de pago</label><input type="date" id="pgFecha" value="${U.iso(U.hoy())}"></div>
@@ -3016,22 +3074,61 @@ const Pagar = {
       </div>
       <div class="modal-foot"><button class="btn primary" id="pgBtn" data-action="pgGuardar">Registrar pago</button><button class="btn" data-action="cerrarModal">Cancelar</button></div>`;
     document.getElementById('modal').classList.add('on');
-    ['pgValor','pgFecha'].forEach(i=>document.getElementById(i).addEventListener('input',()=>this.resumen()));
-    this.resumen(); setTimeout(()=>document.getElementById('pgValor')?.select(),50);
+    ['pgValor','pgFecha'].forEach(i=>document.getElementById(i).addEventListener('input',e=>{ if(e.target.id==='pgValor') this.manual=true; this.resumen(); }));
+    document.getElementById('pgLista').addEventListener('change',e=>{ const ck=e.target.closest('input[data-sig]'); if(ck){ ck.checked?this.sel.add(ck.dataset.sig):this.sel.delete(ck.dataset.sig); this.lista(); } });
+    const R=this.rapidos(c);
+    if(sigs&&sigs.length) this.seleccionar(sigs);
+    else if(Corte.dividido(c)) this.seleccionar(R.find(r=>r.corte).sigs);
+    else this.resumen();
+    setTimeout(()=>document.getElementById('pgValor')?.select(),50);
+  },
+  /* Accesos rápidos: detalle enviado, hasta el corte, todo */
+  rapidos(c){
+    const pend=c.pedidos.filter(v=>v.pendiente), out=[], set=new Set(pend.map(v=>v.sig)), suma=sg=>U.sum(sg,s=>State.sig.get(s).valor);
+    const env=(Envios.st?Envios.st.envios:[]).filter(e=>e.key===c.key&&Envios.estado(e).est==='pendiente').sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
+    if(env){ const sg=env.sigs.filter(s=>set.has(s)); if(sg.length) out.push({t:`Detalle enviado ${U.fdateShort(U.parse(env.fecha))}`, sigs:sg, v:suma(sg), n:sg.length}); }
+    const cor=Corte.pend(c);
+    if(cor.length&&cor.length<pend.length) out.push({t:`Hasta el corte ${U.fdateShort(Corte.fecha(c.grupo))}`, sigs:cor.map(v=>v.sig), v:U.sum(cor,v=>v.valor), n:cor.length, corte:true});
+    out.push({t:'Todo lo pendiente', sigs:pend.map(v=>v.sig), v:U.sum(pend,v=>v.valor), n:pend.length});
+    // sin duplicados (p. ej. detalle enviado = corte)
+    const vistos=new Map(); return out.filter(r=>{ const k=r.sigs.join(','), prev=vistos.get(k);
+      if(prev){ if(r.corte){ prev.t=`${r.t} (${prev.t.replace('Detalle enviado','enviado')})`; prev.corte=true; } return false; } vistos.set(k,r); return true; });
+  },
+  rapido(i){ const r=this.rapidos(this.c)[i]; if(r) this.seleccionar(r.sigs); },
+  seleccionar(sigs){ this.sel=new Set(sigs); this.setModo('elegir'); },
+  setModo(m){ this.modo=m; this.manual=false; if(m==='valor') this.sel=new Set(this.c.pedidos.filter(v=>v.pendiente).map(v=>v.sig)); document.querySelectorAll('#pgModo button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
+    const L=document.getElementById('pgLista'); L.style.display=m==='elegir'?'':'none';
+    if(m==='elegir') this.lista(); else { document.getElementById('pgValor').value=Calc.saldo(this.c).toFixed(2); this.resumen(); } },
+  todos(on){ const pend=this.c.pedidos.filter(v=>v.pendiente); this.sel=new Set(on?pend.map(v=>v.sig):[]); this.lista(); },
+  /* Lista de pedidos con casillas (modo elegir) */
+  lista(){
+    const pend=this.c.pedidos.filter(v=>v.pendiente), L=document.getElementById('pgLista'), n=this.sel.size, tot=U.sum(pend.filter(v=>this.sel.has(v.sig)),v=>v.valor);
+    L.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:space-between;align-items:center;margin:12px 0 6px;font-size:12px"><b>${n} de ${pend.length} pedidos · ${U.money(tot)}</b><span><button class="btn ghost sm" data-action="pgTodos" data-on="1">Todos</button><button class="btn ghost sm" data-action="pgTodos" data-on="0">Ninguno</button></span></div>
+      <div style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:18px;padding:4px 8px">${pend.map(v=>`<label class="pg-row" style="display:flex;align-items:center;gap:12px;padding:8px 6px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px">
+        <input type="checkbox" data-sig="${U.esc(v.sig)}" ${this.sel.has(v.sig)?'checked':''} style="width:18px;height:18px;accent-color:var(--accent)">
+        <span style="flex:1"><b>${DIAS[v.f.getDay()].slice(0,3)} ${U.fdate(v.f)}</b>${v.cantidad>1?` · ${v.cantidad} almuerzos`:''}</span>
+        <span class="num" style="font-weight:800">${U.money(v.valor)}</span>${badge(v.estado)}</label>`).join('')}</div>`;
+    if(!this.manual) document.getElementById('pgValor').value=Math.max(0,U.r2(tot-Pagos.totalCliente(this.c.key))).toFixed(2);
+    this.resumen();
   },
   forma(f){ document.querySelectorAll('#pgForma button').forEach(b=>b.classList.toggle('on',b.dataset.f===f)); document.getElementById('pgBanco').closest('.field').style.display=f==='EFECTIVO'?'none':''; this.resumen(); },
   formaSel(){ const b=document.querySelector('#pgForma button.on'); return b?b.dataset.f:'TRANSFERENCIA'; },
   calcular(){
     const c=this.c, monto=U.r2(parseFloat(document.getElementById('pgValor').value)||0), cred=Pagos.totalCliente(c.key);
-    const pend=c.pedidos.filter(v=>v.pendiente), disp=U.r2(monto+cred), cub=[]; let acc=0;
-    for(const v of pend){ if(acc+v.valor<=disp+0.004){ cub.push(v); acc=U.r2(acc+v.valor); } else break; }
-    return {monto,cred,pend,cub,acc,favor:Math.max(0,U.r2(disp-acc)),resta:pend.slice(cub.length)};
+    const pend=c.pedidos.filter(v=>v.pendiente), disp=U.r2(monto+cred); let cub=[], acc=0;
+    if(this.modo==='elegir'){ cub=pend.filter(v=>this.sel.has(v.sig)); acc=U.r2(U.sum(cub,v=>v.valor)); }
+    else for(const v of pend){ if(acc+v.valor<=disp+0.004){ cub.push(v); acc=U.r2(acc+v.valor); } else break; }
+    const set=new Set(cub);
+    return {monto,cred,pend,cub,acc,falta:Math.max(0,U.r2(acc-disp)),favor:Math.max(0,U.r2(disp-acc)),resta:pend.filter(v=>!set.has(v))};
   },
   resumen(){
     const R=this.calcular(), el=document.getElementById('pgResumen'); if(!el) return;
-    if(!(R.monto>0)){ el.innerHTML='<span class="ic">i</span><span>Escribe el valor que recibiste.</span>'; return; }
+    const btn=document.getElementById('pgBtn'); if(btn&&!btn.dataset.busy) btn.disabled=R.falta>0.004;
+    if(this.modo==='elegir'&&!R.cub.length){ el.innerHTML='<span class="ic">i</span><span>Marca los pedidos que va a pagar.</span>'; if(btn) btn.disabled=true; return; }
+    if(R.falta>0.004){ el.innerHTML=`<span class="ic" style="background:var(--crit)">!</span><span>Los pedidos elegidos suman <b>${U.money(R.acc)}</b>${R.cred>0.004?` (tiene ${U.money(R.cred)} a favor)`:''}: <b>faltan ${U.money(R.falta)}</b>. Sube el valor recibido o desmarca pedidos.</span>`; return; }
+    if(!(R.monto>0)&&!(R.cred>0.004&&R.cub.length)){ el.innerHTML='<span class="ic">i</span><span>Escribe el valor que recibiste.</span>'; return; }
     const restaV=U.sum(R.resta,v=>v.valor);
-    el.innerHTML=`<span class="ic">✓</span><span>${R.cub.length?`Se marcarán como <b>pagados ${R.cub.length} pedido${R.cub.length>1?'s':''}</b> (del ${U.fdate(R.cub[0].f)} al ${U.fdate(R.cub[R.cub.length-1].f)}) por <b>${U.money(R.acc)}</b> en tu hoja.`:`El valor no alcanza para el pedido más antiguo (${U.money(R.pend[0].valor)}): <b>no se marcará ningún pedido</b>.`}
+    el.innerHTML=`<span class="ic">✓</span><span>${R.cub.length?`Se marcarán como <b>pagados ${R.cub.length} pedido${R.cub.length>1?'s':''}</b> ${this.modo==='elegir'?'(los que elegiste)':`(del ${U.fdate(R.cub[0].f)} al ${U.fdate(R.cub[R.cub.length-1].f)})`} por <b>${U.money(R.acc)}</b> en tu hoja.`:`El valor no alcanza para el pedido más antiguo (${U.money(R.pend[0].valor)}): <b>no se marcará ningún pedido</b>.`}
       ${R.cred>0.004?` Se usa el saldo a favor anterior (${U.money(R.cred)}).`:''}
       ${R.favor>0.004?` Quedará <b>${U.money(R.favor)} a favor</b> del cliente.`:''}
       ${R.resta.length?` Siguen pendientes ${R.resta.length} pedido${R.resta.length>1?'s':''} (${U.money(restaV)}).`:' La cuenta queda al día.'}</span>`;
@@ -3047,16 +3144,18 @@ const Pagar = {
   async guardar(){
     const R=this.calcular(), fecha=document.getElementById('pgFecha').value, forma=this.formaSel(), c=this.c;
     const banco=forma==='EFECTIVO'?'':document.getElementById('pgBanco').value.trim().toUpperCase(), dest=document.getElementById('pgDest').value.trim().toUpperCase();
-    if(!(R.monto>0)) return this.msg('Escribe el valor recibido.',true);
+    if(R.falta>0.004) return this.msg(`Faltan ${U.money(R.falta)} para cubrir los pedidos elegidos.`,true);
+    if(this.modo==='elegir'&&!R.cub.length) return this.msg('Marca al menos un pedido.',true);
+    if(!(R.monto>0)&&!(R.cred>0.004&&R.cub.length)) return this.msg('Escribe el valor recibido.',true);
     if(!fecha) return this.msg('Elige la fecha de pago.',true);
     if(forma==='TRANSFERENCIA'&&!banco) return this.msg('Escribe el banco de la transferencia.',true);
-    const btn=document.getElementById('pgBtn'); btn.disabled=true; btn.textContent='Registrando en Google…';
+    const btn=document.getElementById('pgBtn'); btn.disabled=true; btn.dataset.busy='1'; btn.textContent='Registrando en Google…';
     try{
       if(R.cub.length){
         const pago={id:this.id, fecha, forma, banco, destinatario:dest, cliente:c.nombre, grupo:c.grupo, recibido:R.monto, aplicado:R.acc, favor:R.favor,
           pedidos:R.cub.map(v=>{ const i=v.sig.lastIndexOf('#'); return {base:v.sig.slice(0,i), n:+v.sig.slice(i+1)}; })};
         const r=await Remoto.llamar('pagar',{pago},60000);
-        if(!r.marcados){ this.msg(`No se marcó ningún pedido: ${r.yaPagados.length?`${r.yaPagados.length} ya estaban pagados en la hoja`:''}${r.noEncontrados.length?` ${r.noEncontrados.length} no se encontraron (¿se editó la hoja?)`:''}. Pulsa “Actualizar ahora” y revisa.`,true); btn.disabled=false; btn.textContent='Registrar pago'; return; }
+        if(!r.marcados){ this.msg(`No se marcó ningún pedido: ${r.yaPagados.length?`${r.yaPagados.length} ya estaban pagados en la hoja`:''}${r.noEncontrados.length?` ${r.noEncontrados.length} no se encontraron (¿se editó la hoja?)`:''}. Pulsa “Actualizar ahora” y revisa.`,true); btn.disabled=false; delete btn.dataset.busy; btn.textContent='Registrar pago'; return; }
         this.actualizarCredito(R,fecha);
         ModalImg.cerrar();
         const aviso=(r.yaPagados.length||r.noEncontrados.length)?` (${r.yaPagados.length+r.noEncontrados.length} ya no estaban en PTE)`:'';
@@ -3069,13 +3168,117 @@ const Pagar = {
     }catch(err){
       const t=err.code==='ACCION'?'Tu Code.gs es una versión anterior: pega el Code.gs nuevo y publica una “Nueva versión”.':
         err.code==='RED'?'Sin conexión con Google: el pago NO se registró. Vuelve a pulsar cuando tengas internet (no se duplicará).':U.esc(err.message);
-      this.msg(t,true); btn.disabled=false; btn.textContent='Reintentar';
+      this.msg(t,true); btn.disabled=false; delete btn.dataset.busy; btn.textContent='Reintentar';
     }
   }
 };
 
+/* ---------------- CORTE DE COBRO ----------------
+   La gente paga tarde y sigue pidiendo: el corte separa lo que se cobra ahora
+   (hasta el corte) de lo que se cobra en el próximo corte.
+   Por defecto: fin del mes anterior. Por grupo: un día fijo (p. ej. PONCE día 20). */
+const Corte = {
+  KEY:'deliz-cortes', cfg:{grupos:{}},
+  cargar(){ try{ const c=JSON.parse(localStorage.getItem(this.KEY)||'null'); this.cfg=c&&c.grupos?c:{grupos:{}}; }catch(e){ this.cfg={grupos:{}}; } },
+  guardar(){ try{ localStorage.setItem(this.KEY,JSON.stringify(this.cfg)); }catch(e){} Sync.cambio(); },
+  dia(g){ const d=+this.cfg.grupos[g]; return d>=1&&d<=28?d:0; },
+  fecha(g){ const h=U.hoy(), d=this.dia(g);
+    if(d){ let f=new Date(h.getFullYear(),h.getMonth(),d); if(h<f) f=new Date(h.getFullYear(),h.getMonth()-1,d); return f; }
+    return new Date(h.getFullYear(),h.getMonth(),0); },
+  pend(c){ const f=this.fecha(c.grupo); return c.pedidos.filter(v=>v.pendiente&&v.f<=f); },
+  dividido(c){ const n=this.pend(c).length; return n>0 && n<c.nPend; },
+  label(c){ const p=this.pend(c); return p.length?`Pedidos hasta el ${U.fdate(this.fecha(c.grupo))}`:'Sin pedidos hasta el corte'; },
+  texto(g){ const d=this.dia(g); return d?`día ${d} de cada mes`:'fin de mes'; },
+  abrir(){
+    ModalImg.tk++; ModalImg.tipo='cortes';
+    const gs=State.M.grupos;
+    document.getElementById('modalBox').innerHTML=`
+      <div class="dr-head"><div style="flex:1"><div class="lbl-s">Cobros</div><h2 style="font-size:22px">Días de corte</h2><div class="muted" style="font-size:12px">Hasta qué día se cobra en cada grupo. Lo pedido después pasa al siguiente corte.</div></div><button class="btn ghost" data-action="cerrarModal">${I.x}</button></div>
+      <div class="pad" style="overflow:auto">
+        <div style="display:flex;flex-direction:column;gap:8px">${gs.map(g=>{ const d=this.dia(g); return `<div style="display:flex;align-items:center;gap:12px;padding:8px 12px;border:1px solid var(--border);border-radius:18px">
+          <b style="flex:1">${U.esc(g)}</b><span class="muted" style="font-size:12px">corte actual: ${U.fdate(this.fecha(g))}</span>
+          <select class="sel" data-corte="${U.esc(g)}"><option value="0">Fin de mes</option>${Array.from({length:28},(_,i)=>`<option value="${i+1}" ${d===i+1?'selected':''}>Día ${i+1}</option>`).join('')}</select></div>`; }).join('')}</div>
+        <div class="note" style="margin-top:14px"><span class="ic">i</span><span>Ejemplo: si PONCE tiene <b>día 20</b>, el 25 de octubre se cobra lo consumido hasta el 20/10 y lo del 21 en adelante queda para el 20 de noviembre. Se guarda en Google Drive.</span></div>
+      </div>
+      <div class="modal-foot"><button class="btn primary" data-action="corteGuardar">Guardar</button><button class="btn" data-action="cerrarModal">Cancelar</button></div>`;
+    document.getElementById('modal').classList.add('on');
+  },
+  guardarModal(){
+    const g={}; document.querySelectorAll('[data-corte]').forEach(s=>{ const d=+s.value; if(d) g[s.dataset.corte]=d; });
+    this.cfg={grupos:g}; this.guardar(); ModalImg.cerrar(); UI.render(false); if(Drawer.abierto()) Drawer.render(); toast('Días de corte guardados.');
+  }
+};
+Corte.cargar();
+
+/* Mensaje de cobro: separa lo del corte de lo que va al próximo corte */
+{ const original=Calc.mensajeCobro.bind(Calc);
+  Calc.mensajeCobro=function(c){
+    const pend=c.pedidos.filter(v=>v.pendiente), cor=Corte.pend(c);
+    if(!cor.length||cor.length===pend.length) return original(c);
+    const despues=pend.slice(cor.length), cred=Pagos.totalCliente(c.key), sc=Math.max(0,U.r2(U.sum(cor,v=>v.valor)-cred)), alm=U.sum(cor,v=>v.cantidad), f=Corte.fecha(c.grupo);
+    return `Hola ${c.nombre} 👋\nLe saluda *${CONFIG.negocio}*.\nSu saldo al ${U.fdate(f)} es de *${U.money(sc)}* por ${alm} almuerzo${alm>1?'s':''} (${cor.length} pedido${cor.length>1?'s':''}, del ${U.fdate(cor[0].f)} al ${U.fdate(cor[cor.length-1].f)}).\nLos consumos desde el ${U.fdate(new Date(f.getFullYear(),f.getMonth(),f.getDate()+1))} (${U.money(U.sum(despues,v=>v.valor))}) se cobran en el próximo corte.\nLe adjunto el detalle. ¡Gracias por su preferencia!`;
+  };
+}
+
+/* ---------------- SISTEMA DE CAJA ----------------
+   Gastos registrados en el tablero = movimientos "egreso" marcados como gasto.
+   Restan de la cuenta elegida (Tesorería) y suman en Gastos/Utilidad (Resumen). */
+const GastosApp = {
+  base:null, _f:'',
+  lista(){ if(!Tes.st) Tes.cargar(); return (Tes.st.movs||[]).filter(m=>m.tipo==='egreso'&&m.esGasto&&m.valor>0&&m.fecha)
+    .map(m=>({fecha:m.fecha, valor:m.valor, concepto:m.concepto||null, categoria:m.categoria||null, cuenta:m.cuenta, app:true, id:m.id})); },
+  firma(){ return JSON.stringify(this.lista()); },
+  unir(datos){ this.base=datos; this._f=this.firma(); return {...datos, gastos:(datos.gastos||[]).concat(this.lista())}; },
+  verificar(){ if(this.base&&State.M&&this.firma()!==this._f) App.refrescar(this.base); }
+};
+{ const ref=App.refrescar.bind(App); App.refrescar=d=>ref(GastosApp.unir(d)); }
+{ const g=Tes.guardar.bind(Tes); Tes.guardar=function(){ const r=g(); GastosApp.verificar(); return r; }; }
+
+Object.assign(Tes, {
+  /* Editar un movimiento registrado (abre el mismo formulario con sus datos) */
+  editar(id){
+    this.cargar(); const m=this.st.movs.find(x=>x.id===id); if(!m) return;
+    this.mov(m.tipo, m.cuenta); this._edit=id;
+    const v=(i,x)=>{ const el=document.getElementById(i); if(el&&x!=null) el.value=x; };
+    if(m.tipo==='transfer') v('tesDest',m.destino);
+    v('tesFecha',m.fecha); v('tesValor',m.valor); v('tesConcepto',m.concepto);
+    if(m.tipo==='egreso'){ const ck=document.getElementById('tesEsGasto'); if(ck) ck.checked=!!m.esGasto; v('tesCat',m.categoria||''); }
+    const h=document.querySelector('#modalBox .dr-head h2'); if(h) h.textContent='Editar movimiento';
+    const b=document.querySelector('#modalBox [data-action="tesGuardarMov"]'); if(b) b.textContent='Guardar cambios';
+  },
+  /* Ajustar saldo: escribes el saldo real y se registra la diferencia */
+  ajustar(k){
+    this.cargar(); if(!this.st.corte){ this.cuadre(); toast('Primero haz el cuadre inicial.'); return; }
+    const hoy=U.iso(U.hoy()); if(hoy<=this.st.corte){ toast('Hoy es la fecha del cuadre: corrige ese saldo en "Cuadre inicial".'); this.cuadre(); return; }
+    const s=this.saldos(this.movimientos()).find(x=>x.k===k)||{saldo:0}, a=this.info(k);
+    this.abrirModal(`
+      <div class="dr-head"><div style="flex:1;min-width:0;position:relative;z-index:1"><div class="lbl-s">Tesorería · ajustar saldo</div><h2 style="font-size:22px">${U.esc(a.nombre)}</h2><div class="muted" style="font-size:12px">Saldo según el tablero: <b>${U.money(s.saldo)}</b></div></div><button class="btn ghost" data-action="cerrarModal">${I.x}</button></div>
+      <div class="pad">
+        <div class="rep-form" style="grid-template-columns:1fr 1fr">
+          <div class="field"><label>Saldo real hoy</label><input type="number" id="tesReal" step="0.01" inputmode="decimal" placeholder="${s.saldo.toFixed(2)}"></div>
+          <div class="field"><label>Motivo (opcional)</label><input id="tesAjNota" placeholder="Ej.: comisión del banco"></div>
+        </div>
+        <div class="note" style="margin-top:12px" id="tesAjRes"><span class="ic">i</span><span>Escribe lo que dice tu app del banco${a.caja?' (o lo que contaste en caja)':''}. Se registra la diferencia como un movimiento <b>“Ajuste de saldo”</b> con fecha de hoy, para que el historial cuadre.</span></div>
+      </div>
+      <div class="modal-foot"><button class="btn primary" data-action="tesAjGuardar" data-k="${U.esc(k)}">Ajustar</button><button class="btn" data-action="cerrarModal">Cancelar</button></div>`);
+    const inp=document.getElementById('tesReal');
+    inp.addEventListener('input',()=>{ const r=parseFloat(inp.value), d=U.r2(r-s.saldo), el=document.getElementById('tesAjRes');
+      if(isNaN(r)) return; el.innerHTML=Math.abs(d)<0.005?'<span class="ic">✓</span><span>No hay diferencia: el saldo ya cuadra.</span>':
+        `<span class="ic">${d>0?'＋':'−'}</span><span>Se registrará un <b>${d>0?'ingreso':'egreso'}</b> de <b>${U.money(Math.abs(d))}</b> como “Ajuste de saldo”. Nuevo saldo: <b>${U.money(r)}</b>.</span>`; });
+    setTimeout(()=>inp.focus(),50);
+  },
+  guardarAjuste(k){
+    const real=parseFloat(document.getElementById('tesReal').value); if(isNaN(real)){ toast('Escribe el saldo real.'); return; }
+    const s=this.saldos(this.movimientos()).find(x=>x.k===k)||{saldo:0}, d=U.r2(real-s.saldo), nota=(document.getElementById('tesAjNota').value||'').trim();
+    if(Math.abs(d)<0.005){ ModalImg.cerrar(); toast('El saldo ya cuadra; no se registró nada.'); return; }
+    this.st.movs.push({id:'m'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), fecha:U.iso(U.hoy()), tipo:d>0?'ingreso':'egreso', cuenta:k, destino:null, valor:Math.abs(d), concepto:'Ajuste de saldo'+(nota?': '+nota:''), ajuste:true, esGasto:false, creado:new Date().toISOString()});
+    this.guardar(); ModalImg.cerrar(); this.vista(); toast(`Saldo ajustado a ${U.money(real)}.`);
+  }
+});
+
 /* ---------------- INICIO ---------------- */
 async function iniciarApp(datos){
+  datos=GastosApp.unir(datos);
   State.M=Calc.construirModelo(datos); Contactos.aplicar(State.M, datos.contactos);
   State.sig=new Map(State.M.ventas.map(v=>[v.sig,v]));
   State.mensual=Calc.mensual(State.M);
